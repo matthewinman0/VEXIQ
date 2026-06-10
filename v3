@@ -1,0 +1,267 @@
+#pragma region VEXcode Generated Robot Configuration
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <math.h>
+#include <string.h>
+
+#include "vex.h"
+
+using namespace vex;
+
+brain Brain;
+
+#define waitUntil(condition) do { wait(5, msec); } while (!(condition))
+#define repeat(iterations) for (int iterator = 0; iterator < iterations; iterator++)
+
+inertial BrainInertial = inertial();
+
+motor leftMotorA = motor(PORT1, 1.3235294117647058, false);
+motor leftMotorB = motor(PORT2, 1.3235294117647058, false);
+motor rightMotorA = motor(PORT7, 1.3235294117647058, true);
+motor rightMotorB = motor(PORT8, 1.3235294117647058, true);
+
+motor CLAW = motor(PORT4, false);
+motor ARM = motor(PORT6, false);
+
+optical OpticalSens = optical(PORT3);
+touchled TouchLED11 = touchled(PORT11);
+distance Distance12 = distance(PORT12);
+bumper Bumper5 = bumper(PORT10);
+// ================= DRIVE =================
+
+void stopDrive() {
+  leftMotorA.stop();
+  leftMotorB.stop();
+  rightMotorA.stop();
+  rightMotorB.stop();
+}
+
+void driveForward(int speed) {
+  leftMotorA.spin(forward, speed, pct);
+  leftMotorB.spin(forward, speed, pct);
+  rightMotorA.spin(forward, speed, pct);
+  rightMotorB.spin(forward, speed, pct);
+}
+
+void driveReverse(int speed) {
+  leftMotorA.spin(reverse, speed, pct);
+  leftMotorB.spin(reverse, speed, pct);
+  rightMotorA.spin(reverse, speed, pct);
+  rightMotorB.spin(reverse, speed, pct);
+}
+
+void turnLeftFor(int dist, int speed) {
+  leftMotorA.spinFor(reverse, dist, degrees, false);
+  leftMotorB.spinFor(reverse, dist, degrees, false);
+  rightMotorA.spinFor(forward, dist, degrees, false);
+  rightMotorB.spinFor(forward, dist, degrees, true);
+}
+void turnRight(int speed) {
+  leftMotorA.spin(forward, speed, pct);
+  leftMotorB.spin(forward, speed, pct);
+  rightMotorA.spin(reverse, speed, pct);
+  rightMotorB.spin(reverse, speed, pct);
+}
+void turnLeft(int speed) {
+  leftMotorA.spin(reverse, speed, pct);
+  leftMotorB.spin(reverse, speed, pct);
+  rightMotorA.spin(forward, speed, pct);
+  rightMotorB.spin(forward, speed, pct);
+}
+void turnRightFor(int dist, int speed) {
+  leftMotorA.spinFor(forward, dist, degrees, false);
+  leftMotorB.spinFor(forward, dist, degrees, false);
+  rightMotorA.spinFor(reverse, dist, degrees, false);
+  rightMotorB.spinFor(reverse, dist, degrees, true);
+}
+
+// X DRIVE STRAFE
+void strafeLeft(int speed) {
+  leftMotorA.spin(reverse, speed, pct);
+  leftMotorB.spin(forward, speed, pct);
+  rightMotorA.spin(forward, speed, pct);
+  rightMotorB.spin(reverse, speed, pct);
+}
+
+void strafeRight(int speed) {
+  leftMotorA.spin(forward, speed, pct);
+  leftMotorB.spin(reverse, speed, pct);
+  rightMotorA.spin(reverse, speed, pct);
+  rightMotorB.spin(forward, speed, pct);
+}
+
+void strafeTime(int dir, int ms, int speed = 40) {
+  if (dir < 0) strafeLeft(speed);
+  else strafeRight(speed);
+
+  wait(ms, msec);
+  stopDrive();
+}
+
+// ================= INIT =================
+
+void vexcodeInit() {
+  BrainInertial.calibrate();
+  while (BrainInertial.isCalibrating()) wait(25, msec);
+}
+
+// ================= SEARCH =================
+
+float closestDist;
+float closestHeading;
+int bestPass;
+
+int diff;
+
+int findBlock() {
+
+  ARM.spinFor(forward, 160, degrees, true);
+  wait(300, msec);
+
+  float bestDist = 100000;
+  int bestIndex = 0;
+
+  const int steps = 130;        // total scan resolution
+  const int stepTime = 40;     // ms per step
+  const int speed = 50;
+
+  // =========================
+  // MOVE TO FAR LEFT START
+  // =========================
+  strafeLeft(speed);
+  wait(3500, msec); // push fully left edge
+  stopDrive();
+  wait(200, msec);
+
+  // reset position concept
+  int currentIndex = 0;
+
+  // =========================
+  // SCAN RIGHTWARD ONLY
+  // =========================
+  strafeRight(speed);
+
+  for (int i = 0; i < steps; i++) {
+
+    float d = Distance12.objectDistance(mm);
+
+    if (d > 0 && d < bestDist) {
+      bestDist = d;
+      bestIndex = i;
+    }
+
+    currentIndex = i;
+
+    Brain.Screen.clearScreen();
+    Brain.Screen.printAt(10, 20, "Scan %d/%d", i, steps);
+    Brain.Screen.printAt(10, 40, "Dist %.1f", d);
+
+    wait(stepTime, msec);
+  }
+
+  stopDrive();
+  wait(200, msec);
+
+  // =========================
+  // RETURN TO BEST POSITION
+  // =========================
+  diff = bestIndex - currentIndex;
+
+  if (diff > 0) {
+    strafeRight(speed + 5);
+    wait(diff * stepTime, msec);
+  } 
+  else if (diff < 0) {
+    strafeLeft(speed + 5);
+    wait(-diff * stepTime, msec);
+  }
+
+  stopDrive();
+
+  wait(200, msec);
+
+  // =========================
+  // DRIVE TO BLOCK
+  // =========================
+  while (Distance12.objectDistance(mm) > 50) {
+    driveReverse(50);
+    wait(20, msec);
+  }
+
+  stopDrive();
+  return 0;
+}
+
+// ================= MAIN =================
+
+int main() {
+  vexcodeInit();
+
+  OpticalSens.setLight(ledState::off);
+  OpticalSens.setLightPower(20, percent);
+
+
+  CLAW.spinFor(forward, 60, degrees, false);
+  CLAW.setPosition(0, degrees);
+
+  findBlock();
+
+  Brain.playSound(siren);
+
+  driveReverse(30);
+  TouchLED11.setColor(OpticalSens.hue());
+  wait(500, msec);
+  stopDrive();
+
+  CLAW.spinToPosition(-60, degrees, false);
+  ARM.spinFor(reverse, 160, degrees, true);
+  wait(500, msec);
+  CLAW.spinToPosition(0, degrees, false);
+  ARM.spinFor(forward, 160, degrees, false);
+
+
+  while (Bumper5.pressing() == false) {
+    strafeLeft(50);
+  }
+  stopDrive();
+
+  strafeRight(50);
+  wait(3000, msec);
+  stopDrive();
+
+  wait(100, msec);
+  while (Distance12.objectDistance(mm) >= 200) {
+      driveReverse(50);
+  }
+  stopDrive();
+
+  turnRightFor(450, 50);
+
+  while (Distance12.objectDistance(mm) >= 50) {
+      driveReverse(50);
+  }
+  stopDrive();
+  CLAW.spinToPosition(-60, degrees, false);
+  wait(500, msec);
+  CLAW.spinToPosition(0, degrees, false);
+
+  driveReverse(50);
+  wait(700, msec);
+
+  turnLeftFor(450, 50);  
+  while (Bumper5.pressing() == false) {
+    strafeLeft(50);
+  }
+  stopDrive();
+
+  driveForward(100);
+  wait(4000, msec);
+  stopDrive();
+
+  while (Bumper5.pressing() == false) {
+    strafeLeft(50);
+  }
+  stopDrive();
+
+}
