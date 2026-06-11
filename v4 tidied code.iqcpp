@@ -1,0 +1,276 @@
+// ================= START =================
+#pragma region VEXcode Generated Robot Configuration
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <math.h>
+#include <string.h>
+
+#include "vex.h"
+
+using namespace vex;
+
+brain BRAIN;
+
+#define waitUntil(condition) do { wait(5, msec); } while (!(condition))
+#define repeat(iterations) for (int iterator = 0; iterator < iterations; iterator++)
+
+inertial BRAININTERNAL = inertial();
+
+motor leftMotorA = motor(PORT1, 1.3235294117647058, false);
+motor leftMotorB = motor(PORT2, 1.3235294117647058, false);
+motor rightMotorA = motor(PORT7, 1.3235294117647058, true);
+motor rightMotorB = motor(PORT8, 1.3235294117647058, true);
+
+motor CLAW = motor(PORT4, false);
+motor ARM = motor(PORT6, false);
+
+optical OPTICALSENS = optical(PORT3);
+touchled LED = touchled(PORT11);
+distance DISTANCESENS = distance(PORT12);
+bumper BUMPERSENS = bumper(PORT10);
+
+// ================= DRIVE =================
+
+void stopDrive() {
+	leftMotorA.stop();
+    leftMotorB.stop();
+    rightMotorA.stop();
+    rightMotorB.stop();
+}
+
+void driveForward(int speed) {
+    leftMotorA.spin(reverse, speed, pct);
+    leftMotorB.spin(reverse, speed, pct);
+    rightMotorA.spin(reverse, speed, pct);
+    rightMotorB.spin(reverse, speed, pct);
+}
+void driveReverse(int speed) {
+    leftMotorA.spin(forward, speed, pct);
+    leftMotorB.spin(forward, speed, pct);
+    rightMotorA.spin(forward, speed, pct);
+    rightMotorB.spin(forward, speed, pct);
+}
+
+void driveForwardTime(int time, int speed = 50) {
+    leftMotorA.spin(reverse, speed, pct);
+    leftMotorB.spin(reverse, speed, pct);
+    rightMotorA.spin(reverse, speed, pct);
+    rightMotorB.spin(reverse, speed, pct);
+    wait(time, msec);
+    stopDrive();
+}
+void driveReverseTime(int time, int speed = 50) {
+    leftMotorA.spin(forward, speed, pct);
+    leftMotorB.spin(forward, speed, pct);
+    rightMotorA.spin(forward, speed, pct);
+    rightMotorB.spin(forward, speed, pct);
+    wait(time, msec);
+    stopDrive();
+}
+
+void turnRight(int speed) {
+    leftMotorA.spin(forward, speed, pct);
+    leftMotorB.spin(forward, speed, pct);
+    rightMotorA.spin(reverse, speed, pct);
+    rightMotorB.spin(reverse, speed, pct);
+}
+void turnRightFor(int dist, int speed) {
+    leftMotorA.spinFor(forward, dist, degrees, false);
+    leftMotorB.spinFor(forward, dist, degrees, false);
+    rightMotorA.spinFor(reverse, dist, degrees, false);
+    rightMotorB.spinFor(reverse, dist, degrees, true);
+}
+void turnLeft(int speed) {
+    leftMotorA.spin(reverse, speed, pct);
+    leftMotorB.spin(reverse, speed, pct);
+    rightMotorA.spin(forward, speed, pct);
+    rightMotorB.spin(forward, speed, pct);
+}
+void turnLeftFor(int dist, int speed) {
+    leftMotorA.spinFor(reverse, dist, degrees, false);
+    leftMotorB.spinFor(reverse, dist, degrees, false);
+    rightMotorA.spinFor(forward, dist, degrees, false);
+    rightMotorB.spinFor(forward, dist, degrees, true);
+}
+
+void strafeLeft(int speed) {
+    leftMotorA.spin(reverse, speed, pct);
+    leftMotorB.spin(forward, speed, pct);
+    rightMotorA.spin(forward, speed, pct);
+    rightMotorB.spin(reverse, speed, pct);
+}
+void strafeRight(int speed) {
+    leftMotorA.spin(forward, speed, pct);
+    leftMotorB.spin(reverse, speed, pct);
+    rightMotorA.spin(reverse, speed, pct);
+    rightMotorB.spin(forward, speed, pct);
+}
+
+void strafeTime(int dir, int ms, int speed = 40) {
+    if (dir < 0) strafeLeft(speed);
+    else strafeRight(speed);
+
+    wait(ms, msec);
+    stopDrive();
+}
+
+// ================= Special Moves =================
+
+void bump(int speed = 50) {
+    while (BUMPERSENS.pressing() == false) {
+        strafeLeft(speed);
+        wait(20, msec);
+    }
+    stopDrive();
+}
+
+void moveTillDist(int dist, int speed = 50){
+    while (DISTANCESENS.objectDistance(mm) >= dist) {
+        driveForward(speed);
+        wait(20, msec);
+    }
+    stopDrive();
+}
+
+void CLAWOpen(){
+    CLAW.spinToPosition(-60, degrees, false);
+}
+void CLAWClose(){
+    CLAW.spinToPosition(0, degrees, false);
+}
+
+void ARMUp(int num){
+    ARM.spinFor(reverse, (num*160), degrees, true);
+}
+void ARMDown(int num){
+    ARM.spinFor(forward, (num*160), degrees, true);
+}
+
+// ================= Startup =================
+
+void vexcodeInit() {
+    OPTICALSENS.setLight(ledState::on);
+    OPTICALSENS.setLightPower(100, percent);
+    BRAININTERNAL.calibrate();
+    while (BRAININTERNAL.isCalibrating()) wait(25, msec);
+    CLAW.spinFor(forward, 100, degrees, false);
+    CLAW.setPosition(0, degrees);
+	BRAIN.playSound(headlightsOn);
+}
+
+// ================= Find Block =================
+int findBlock() {
+
+    ARM.spinFor(forward, 160, degrees, true);
+    wait(300, msec);
+
+    float bestDist = 1000000;    // set distance really high at first so that any lower distances overwrite
+    int bestIndex = 0;
+
+    const int steps = 130;       // total scan resolution
+    const int stepTime = 40;     // ms per step
+    const int speed = 50;
+
+    bump();     // Moves to far Left
+    wait(200, msec);
+
+    // reset position concept
+    int currentIndex = 0;
+
+    // SCAN RIGHTWARD ONLY
+    strafeRight(speed);
+
+    for (int i = 0; i < steps; i++) {
+        //Finds closest position along the right strafe
+
+        float d = DISTANCESENS.objectDistance(mm);
+
+        if (d > 0 && d < bestDist) {
+            bestDist = d;
+            bestIndex = i;
+        }
+
+        currentIndex = i;
+
+        BRAIN.Screen.clearScreen();
+        BRAIN.Screen.printAt(10, 20, "Scan %d/%d", i, steps);
+        BRAIN.Screen.printAt(10, 40, "Dist %.1f", d);
+
+        wait(stepTime, msec);
+    }
+
+    stopDrive();
+    wait(200, msec);
+
+    // Return to best possition
+    int diff = bestIndex - currentIndex;
+
+    strafeLeft(speed + 5);
+    wait(-diff * stepTime, msec);
+    stopDrive();
+
+    wait(200, msec);
+
+    // Drive to block
+    while (DISTANCESENS.objectDistance(mm) > 50) {
+        driveForward(50);
+        wait(20, msec);
+    }
+
+    stopDrive();
+    return 0;
+}
+
+
+//Functin of the whole procedure so it can be repeated
+void scanForward(){
+    findBlock();
+
+    BRAIN.playSound(siren);
+
+    driveForwardTime(500, 30);
+    wait(200, msec);
+    LED.setColor(OPTICALSENS.color());
+
+    CLAWOpen();
+    ARMUp(1);
+    wait(500, msec);
+    CLAWClose();
+    ARMDown(1);
+
+    bump();
+
+    strafeTime(-1, 3000, 50);
+
+    wait(100, msec);
+
+    moveTillDist(200);
+
+    turnRightFor(450, 50);
+
+    moveTillDist(50);
+
+    CLAWOpen();
+    wait(500, msec);
+    CLAWClose();
+
+    driveReverseTime(1000);
+
+    turnLeftFor(450, 50);
+
+    bump();
+    driveReverseTime(4000, 100);
+}
+
+// ================= MAIN =================
+int main() {
+    vexcodeInit();
+
+    scanForward();
+    scanForward();
+    scanForward();
+}
+
+
+// ================= END =================
